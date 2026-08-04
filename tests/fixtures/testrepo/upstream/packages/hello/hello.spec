@@ -24,6 +24,14 @@ Obsoletes: goodbye < 2
 The "Hello World" program, done with all bells and whistles of a proper FOSS
 project, including configuration, build, internationalization, help files, etc.
 
+%package doc
+Summary: Documentation for %{name}
+Requires: %{name} = %{version}-%{release}
+BuildArch: noarch
+
+%description doc
+Documentation for %{name}.
+
 %prep
 %autosetup
 

@@ -655,6 +655,10 @@ def test_obal_repoclosure_with_downloaded_rpms():
     ]
     assert_in_mockbin_log(expected_log)
 
+    # dist-repoclosure has no repoclosure_target_repos, so there's nothing
+    # persistent/stale to exclude the package from.
+    assert_not_in_mockbin_log("--setopt")
+
 
 @obal_cli_test(repotype='upstream')
 def test_obal_repoclosure_katello_with_downloaded_rpms():
@@ -677,6 +681,32 @@ def test_obal_repoclosure_katello_with_downloaded_rpms():
     ]
     assert_in_mockbin_log(expected_log)
 
+    # katello-repoclosure is a repoclosure-only host with no package
+    # directory/spec - there's no real package here to scope an exclude to,
+    # so nothing should be excluded (excluding "katello-repoclosure*" would be
+    # meaningless at best, and a name-collision hazard at worst).
+    assert_not_in_mockbin_log("--setopt")
+
+
+@obal_cli_test(repotype='upstream')
+def test_obal_repoclosure_downloaded_rpms_real_package():
+    # unlike katello-repoclosure above, this exercises the downloaded_rpms
+    # flow for an actual package host (koji/copr release flow shape) with a
+    # multi-binary spec (hello + hello-doc, see hello.spec's %package doc).
+    os.makedirs('downloaded_rpms/rhel7')
+
+    assert_obal_success(['repoclosure', 'hello'])
+
+    # both binary packages built by hello.spec get excluded from the
+    # persistent target repo, by exact name - never a glob.
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello")
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello-doc")
+    assert_not_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello*")
+    # downloaded_rpms itself must never be excluded from its own check.
+    assert_not_in_mockbin_log("--setopt=downloaded_rpms.excludepkgs=hello")
+    assert_not_in_mockbin_log("--setopt=downloaded_rpms.excludepkgs=hello-doc")
+
+
 @obal_cli_test(repotype='upstream')
 def test_obal_repoclosure_with_check_repo():
     assert_obal_success(['repoclosure', 'hello', '--check', 'https://test.example.com/myrepo', '--dist', 'rhel7'])
@@ -690,10 +720,69 @@ def test_obal_repoclosure_with_check_repo():
         "repoclosure/yum.conf",
         "--check repo0",
         "--repofrompath repo0,https://test.example.com/myrepo",
+        "--check el7-katello",
         "--repo el7-base"
     ]
 
     assert_in_mockbin_log(expected_log)
+
+    # the persistent target repo (el7-katello) gets both of hello.spec's
+    # binary packages excluded, by exact name - since repo0 (the fresh
+    # PR/scratch build) is authoritative for them...
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello")
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello-doc")
+    # ...never as a name-prefix glob, which would also match unrelated
+    # packages that merely share a name prefix (e.g. "hello" vs "hello-world").
+    assert_not_in_mockbin_log("--setopt=el7-katello.excludepkgs=hello*")
+    # ...and repo0 itself must never be excluded from its own check.
+    assert_not_in_mockbin_log("--setopt=repo0.excludepkgs=hello")
+    assert_not_in_mockbin_log("--setopt=repo0.excludepkgs=hello-doc")
+
+
+@obal_cli_test(repotype='upstream')
+def test_obal_repoclosure_with_check_repo_no_package_dir():
+    # katello-multi-repoclosure is a repoclosure-only host (no package
+    # directory/spec), even though it has two repoclosure_target_repos
+    # configured. There's no real package to scope an exclude to, so no
+    # --setopt should be emitted at all, regardless of how many target repos
+    # are configured.
+    assert_obal_success([
+        'repoclosure', 'katello-multi-repoclosure',
+        '--check', 'https://test.example.com/myrepo', '--dist', 'rhel7'
+    ])
+
+    assert_not_in_mockbin_log("--setopt")
+
+
+@obal_cli_test(repotype='upstream')
+def test_obal_repoclosure_with_check_repo_multiple_target_repos():
+    # package-with-two-targets is a real package host (single binary package)
+    # with two repoclosure_target_repos configured for rhel7.
+    assert_obal_success([
+        'repoclosure', 'package-with-two-targets',
+        '--check', 'https://test.example.com/myrepo', '--dist', 'rhel7'
+    ])
+
+    # every persistent target repo gets its own exclude, not just the first
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=package-with-two-targets")
+    assert_in_mockbin_log("--setopt=el7-updates.excludepkgs=package-with-two-targets")
+    assert_not_in_mockbin_log("--setopt=repo0.excludepkgs=package-with-two-targets")
+
+
+@obal_cli_test(repotype='upstream')
+def test_obal_repoclosure_with_check_repo_unparseable_spec():
+    # broken-spec-package has a real package directory but its spec has an
+    # unterminated %if, so rpmspec fails to parse it. The resolver must fall
+    # back to the exact hostname (never a glob) rather than silently
+    # excluding nothing.
+    assert_obal_success([
+        'repoclosure', 'broken-spec-package',
+        '--check', 'https://test.example.com/myrepo', '--dist', 'rhel7'
+    ])
+
+    assert_in_mockbin_log("--setopt=el7-katello.excludepkgs=broken-spec-package")
+    assert_not_in_mockbin_log("--setopt=el7-katello.excludepkgs=broken-spec-package*")
+    assert_not_in_mockbin_log("--setopt=repo0.excludepkgs=broken-spec-package")
 
 @obal_cli_test(repotype='copr')
 def test_obal_scratch_copr_hello_nowait():

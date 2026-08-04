@@ -19,6 +19,9 @@ packages:
     hello:
       nightly_package_tito_releaser_args:
         - "jenkins_job=hello-master-release"
+      repoclosure_target_repos:
+        rhel7:
+          - el7-katello
     foo: {}
     bar: {}
     package-with-existing-build: {}
@@ -28,6 +31,14 @@ packages:
           dist: '.el8'
         - name: obalclient-nightly-el8
           dist: '.el8'
+      repoclosure_target_repos:
+        rhel7:
+          - el7-katello
+          - el7-updates
+    broken-spec-package:
+      repoclosure_target_repos:
+        rhel7:
+          - el7-katello
 
 repoclosures:
   vars:
@@ -45,3 +56,8 @@ repoclosures:
       repoclosure_target_repos:
         rhel7:
           - el7-katello
+    katello-multi-repoclosure:
+      repoclosure_target_repos:
+        rhel7:
+          - el7-katello
+          - el7-updates

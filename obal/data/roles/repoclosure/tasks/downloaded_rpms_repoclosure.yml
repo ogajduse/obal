@@ -18,6 +18,10 @@
     check_repos: "{{ repoclosure_target_repos[dist] | default([]) + ['downloaded_rpms'] }}"
     additional_repos: "{{ repoclosure_additional_repos + [download_rpm_repos] }}"
     lookaside_repos: "{{ repoclosure_lookaside_repos[dist] }}"
+    # downloaded_rpms is the freshly-built repo for this package - exclude its
+    # stale sibling from the persistent staging repos only.
+    exclude_repos: "{{ repoclosure_target_repos[dist]|default([]) }}"
+    exclude_packages: "{{ resolved_exclude_packages }}"
   loop: "{{ downloaded_rpms_dists }}"
   loop_control:
     loop_var: dist

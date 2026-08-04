@@ -28,6 +28,8 @@
         check: "{{ check_repos | default([]) }}"
         additional_repos: "{{ additional_repos | default([]) }}"
         lookaside: "{{ lookaside_repos | default([]) }}"
+        exclude_repos: "{{ exclude_repos | default([]) }}"
+        exclude_packages: "{{ exclude_packages | default([]) }}"
       register: output
 
     - debug:

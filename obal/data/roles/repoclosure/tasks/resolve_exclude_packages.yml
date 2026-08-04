@@ -1,0 +1,66 @@
+---
+# Resolve the exact binary package names built by this host's spec, so a
+# persistent staging repo can have just this package's own (possibly stale)
+# builds excluded without touching unrelated packages whose names happen to
+# share a prefix (e.g. "foreman" vs "foreman-proxy", "rubygem-hammer_cli" vs
+# "rubygem-hammer_cli_foreman"). Hosts with no package directory (e.g. the
+# repoclosure-only hosts used for a full-dist self-check) resolve to an empty
+# list - there's no package here to scope an exclude to.
+- name: Check for a package directory for this host
+  stat:
+    path: "{{ inventory_dir }}/{{ package_base_dir }}/{{ inventory_hostname }}"
+  register: repoclosure_package_dir
+
+- name: Find spec file for exclude-package resolution
+  find:
+    pattern: "*.spec"
+    paths: "{{ inventory_dir }}/{{ package_base_dir }}/{{ inventory_hostname }}"
+  register: repoclosure_spec_file
+  when: repoclosure_package_dir.stat.exists and repoclosure_package_dir.stat.isdir
+
+- name: Get binary package names built by the spec
+  # list form (not a plain string) - the command module's shlex splitting of a
+  # string would eat the backslash in "%{name}\n" (rpm's own queryformat
+  # engine is what turns that "\n" into a real newline, not the shell), so
+  # each argv item must be passed through untouched.
+  command:
+    argv:
+      - rpmspec
+      - --query
+      - --undefine=dist
+      - --undefine=foremandist
+      - --queryformat=%{name}\n
+      - "{{ repoclosure_spec_file.files[0].path }}"
+  register: repoclosure_binary_names
+  changed_when: false
+  failed_when: false
+  when: repoclosure_spec_file is defined and (repoclosure_spec_file.matched | default(0)) > 0
+
+- name: Record whether a package directory exists for this host
+  set_fact:
+    repoclosure_has_package_dir: "{{ repoclosure_package_dir.stat.exists and repoclosure_package_dir.stat.isdir }}"
+
+- name: Record whether the spec resolved at least one binary package name
+  set_fact:
+    repoclosure_spec_resolved: >-
+      {{ repoclosure_binary_names is defined and
+         (repoclosure_binary_names.rc | default(1)) == 0 and
+         (repoclosure_binary_names.stdout_lines | default([]) | length) > 0 }}
+
+# Exact binary names from a successfully-parsed spec; if the spec failed to
+# parse, fall back to the exact hostname (never a glob); if there's no
+# package directory at all, nothing to exclude.
+- name: Use the spec's binary package names when resolution succeeded
+  set_fact:
+    resolved_exclude_packages: "{{ repoclosure_binary_names.stdout_lines }}"
+  when: repoclosure_spec_resolved
+
+- name: Fall back to the exact hostname when a package exists but its spec didn't resolve
+  set_fact:
+    resolved_exclude_packages: "{{ [inventory_hostname] }}"
+  when: repoclosure_has_package_dir and not repoclosure_spec_resolved
+
+- name: No package directory means there's nothing to exclude
+  set_fact:
+    resolved_exclude_packages: []
+  when: not repoclosure_has_package_dir
